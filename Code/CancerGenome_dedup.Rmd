@@ -1,0 +1,210 @@
+# Load required packages
+```{r}
+library(reticulate)
+library(plyr)
+library(tibble)
+library(dplyr)
+library(stats)
+```
+
+
+# Load dataset
+```{r}
+setwd("/Users/jingjing/SEM2/Dissertations/Project 1/Data")
+data <- read.delim("genie_data_mutations_extended.txt", header = TRUE)
+head(data)
+
+## Preprocess Dataset
+tbl_data = as_tibble(data)
+tbl_data
+```
+
+# Read pickle file 
+```{r}
+py_install("pandas")
+
+source_python("/Users/jingjing/SEM2/Dissertations/Project 1/Code/pickle_reader.py")
+prob_mutation <- read_pickle_file("/Users/jingjing/SEM2/Dissertations/Project 1/Data/codon_mutability.pickle")
+# Convert it into data frame
+bg_mutability = ldply(prob_mutation,data.frame)
+colnames(bg_mutability)[1] = "Gene_Codon"
+colnames(bg_mutability)[2] = "Mutability"
+bg_mutability
+```
+
+# Filter out "SNP" and "Missense Mutation"
+```{r}
+train_data = tbl_data %>% filter(Variant_Type == "SNP" & Variant_Classification == "Missense_Mutation")
+train_data
+```
+
+# Select vital features
+```{r}
+mutation_data = train_data %>% select(Tumor_Sample_Barcode, Hugo_Symbol, HGVSp_Short, Codons)
+print(length(unique(mutation_data$Tumor_Sample_Barcode)))
+mutation_data
+```
+
+# Get Gene_Codon
+```{r}
+# Remove the first 2 characters
+a = sapply(mutation_data$HGVSp_Short,function(x) sub("..","",x))
+# Remove the last character to get codon_id 
+mutation_data$CodonID = sapply(a,function(x) substr(x,1,nchar(x)-1))
+# Combine gene name and codon id
+mutation_data = mutation_data %>% select(Tumor_Sample_Barcode,Hugo_Symbol,CodonID, Codons) %>% mutate(Gene_Codon = paste(Hugo_Symbol,CodonID,sep = "_"))
+print(nrow(mutation_data))
+mutation_data
+```
+
+# Remove the Gene_Codon that are not in pickle file 
+```{r}
+# No. Gene_Codon that are not in pickle file
+print(length(setdiff(mutation_data$Gene_Codon,bg_mutability$Gene_Codon)))
+# Gene_Codon that are not in pickle file
+difference = setdiff(mutation_data$Gene_Codon,bg_mutability$Gene_Codon)
+# Drop relevant rows from mutation_data
+index_diff = which(mutation_data$Gene_Codon %in% difference)
+mutation_data =  mutation_data[-index_diff,]
+print(nrow(mutation_data))
+```
+
+# No. of samples / patients / tumors
+```{r}
+n = length(unique(mutation_data$Tumor_Sample_Barcode))
+print(n)
+```
+
+# Get rid of the duplicate row
+```{r}
+# Remove the duplicate row 
+corrected_mutation = mutation_data %>% 
+  distinct(Tumor_Sample_Barcode,Gene_Codon,Codons)
+
+corrected_mutation$Count = rep(1,nrow(corrected_mutation))
+```
+
+# Calculate Frequency based on tumor_gene_codon
+```{r}
+sample_freq = as.data.frame(sort(table(corrected_mutation$Gene_Codon), decreasing = TRUE))
+colnames(sample_freq)[1] = "Gene_Codon"
+colnames(sample_freq)[2] = "Sample_Freq"
+print(nrow(sample_freq))
+head(sample_freq)
+```
+
+# Calculate the mutabilities in dataset / sample mutabilities
+```{r}
+sample_freq["Sample_Mut"] = sample$Sample_Freq/n # 不确定n ？？？
+print(nrow(sample_freq))
+head(sample_freq)
+```
+
+# Merge pickle with sample
+```{r}
+prob_data = merge(bg_mutability,sample_freq,by="Gene_Codon")
+head(prob_data)
+```
+
+# Calculate the significant score manually 
+```{r}
+# Calculate the p-value / significance score
+score_data.manually = rowwise(prob_data) %>% 
+  bind_cols(do(.,data.frame(Sig_Score = pbinom(.$Sample_Freq, n, .$Mutability, lower.tail = FALSE)+
+                                        dbinom(.$Sample_Freq, n, .$Mutability))))
+head(score_data.manually)
+```
+
+# No. of significant before multiple correction of manual p-value
+```{r}
+# Original significant result of manually-calculated p-value
+driver_mutation_ori.manually = ifelse(score_data.manually$Sig_Score<=0.01, 1, 0)
+sum(driver_mutation_ori.manually)
+```
+
+# Calculate the significant score with binomial testing from stats
+```{r}
+# library(stats)
+score_data.binomtest = rowwise(prob_data) %>% 
+  bind_cols(do(.,data.frame(Sig_Score = binom.test(.$Sample_Freq, n, .$Mutability, alternative = "greater")$p.value)))
+head(score_data.binomtest)
+```
+
+# No. of significant before multiple correction of binomal testing p-value
+```{r}
+# Original significant result of binomial testing p-value
+driver_mutation_ori.binomtest = ifelse(score_data.binomtest$Sig_Score<=0.01, 1, 0)
+sum(driver_mutation_ori.binomtest)
+```
+
+```{r}
+score_data = score_data.binomtest
+```
+
+
+# Multiple testing correction by p.adjust - alpha = 0.01
+# BH - Banjamini Hochbergh
+```{r}
+adj_p_value_BH = p.adjust(score_data$Sig_Score, method = "BH", n = length(score_data$Sig_Score))
+# score_data["Adj_P_Value_BH"] = adj_p_value_BH
+# driver_mutation_BH = ifelse(score_data$Adj_P_Value_BY<=0.01, 1, 0)
+driver_mutation_BH.1 = ifelse(adj_p_value_BH<=0.01, 1, 0)
+sum(driver_mutation_BH.1) 
+```
+
+# BY - Banjamini Yekutieli
+```{r}
+adj_p_value_BY = p.adjust(score_data$Sig_Score, method = "BY", n = length(score_data$Sig_Score))
+# score_data["Adj_P_Value_BY"] = adj_p_value_BY
+# driver_mutation_BY = ifelse(score_data$Adj_P_Value_BY<=0.01, 1, 0)
+driver_mutation_BY.1 = ifelse(adj_p_value_BY<=0.01, 1, 0)
+sum(driver_mutation_BY.1)
+```
+
+# BH manually
+```{r}
+p_value = sort(score_data$Sig_Score)
+
+BH = function(p, m, Q){
+  i = 1
+  sig = rep(0,m)
+  repeat {
+    adj = i*Q/m
+    if (p[i] > adj){
+      break
+    }
+    i = i + 1
+  }
+  print(i)
+  sig[1:i] = 1
+  return(sig)
+}
+
+adj_p_value_BH.manually = BH(p_value, length(p_value), Q = 0.01)
+sum(adj_p_value_BH.manually)
+sum(driver_mutation_BH.1)
+print(table(adj_p_value_BH.manually)) # 自己写的
+print(table(driver_mutation_BH.1)) # p.adjust
+```
+
+# Multiple testing correction by p.adjust - alpha = 0.05
+# BH
+```{r}
+driver_mutation_BH.5 = ifelse(adj_p_value_BH<=0.05, 1, 0)
+sum(driver_mutation_BH.5)
+```
+
+```{r}
+driver_mutation_BY.5 = ifelse(adj_p_value_BY<=0.05, 1, 0)
+sum(driver_mutation_BY.5)
+```
+
+
+
+
+
+
+
+
+
+
