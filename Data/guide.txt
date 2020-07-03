@@ -1,0 +1,5 @@
+There are3 datasets in total:
+
+codon_mutability.pickle -> background mutation rate data
+genie_data_mutations_extended.txt -> genie data
+pre_tcga_mutations_data.txt -> tcga data
