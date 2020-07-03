@@ -1,0 +1,231 @@
+# Genie set
+```{r}
+# score_data = score_data[,-5]
+score_data["Driver_BH"] = driver_mutation_BH.1
+score_data["Driver_BY"] = driver_mutation_BY.1
+score_data
+```
+
+# TCGA set
+```{r}
+test_score_data["Driver_BH"] = test_driver_mutation_BH.1
+test_score_data["Driver_BY"] = test_driver_mutation_BY.1
+
+test_score_data
+```
+
+# Genie set alpha = 0.01
+```{r}
+# BH
+# driver_mutation_BH.1
+paste("Genie set BH:",sum(driver_mutation_BH.1))
+
+# BY
+# driver_mutation_BY.1C
+paste("Genie set BY:",sum(driver_mutation_BY.1))
+```
+
+# TCGA set alpha = 0.01
+```{r}
+# BH
+# test_driver_mutation_BH.1
+paste("TCGA set BH:",sum(test_driver_mutation_BH.1))
+
+# BY
+# driver_mutation_BY.1C
+paste("TCGA set BY:",sum(test_driver_mutation_BY.1))
+```
+
+# BH vs BY
+```{r}
+dataset = c("Genie","Genie","TCGA","TCGA")
+method= c("BH","BY","BH","BY")
+sigNo = c(sum(driver_mutation_BH.1),sum(driver_mutation_BY.1),sum(test_driver_mutation_BH.1),sum(test_driver_mutation_BY.1))
+df = data.frame("Dataset" = dataset,"Method" = method,"SigNo" = sigNo)
+df
+```
+
+# Check the mutation frequency for 176109 - 7166 = 168943
+```{r}
+diff_index = which(score_data$Gene_Codon %in% setdiff(score_data$Gene_Codon,test_score_data$Gene_Codon))
+print(length(diff_index))
+diff_part = score_data[diff_index,] %>%
+  select(Gene_Codon,Sample_Freq,Driver_BH,Driver_BY)
+diff_part %>% 
+  arrange(.,desc(Sample_Freq))
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(data=df, aes(x=Dataset, y=SigNo, fill=Method)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+  geom_text(aes(label=SigNo), vjust=-0.3, position = position_dodge(0.9), size=3.5)+
+  scale_fill_brewer(palette="Paired") +
+  ggtitle("No. of Potential Driver Mutations")+
+  theme(plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+        axis.title = element_blank()) 
+  
+```
+
+# BH - overlap 1
+```{r}
+# Get the Gene_Codon of significant codons in Genie set
+sig_genie_BH = score_data[which(score_data$Driver_BH == 1), c(1,3)]
+paste("Genie significant:",nrow(sig_genie_BH))
+sig_genie_BH
+
+# Get the Gene_Codon of significant codons in TCGA set
+sig_tcga_BH = test_score_data[which(test_score_data$Driver_BH == 1),c(1,3)]
+paste("TCGA significant:",nrow(sig_tcga_BH))
+sig_tcga_BH
+
+# Get the intersected part (1,1)
+intersect_1_BH = intersect(sig_genie_BH$Gene_Codon,sig_tcga_BH$Gene_Codon)
+paste("Both significant:",length(intersect_1_BH))
+
+# Get the unintersected part (1,0 / 0,1)
+paste("only Genie Significant:",length(setdiff(sig_genie_BH$Gene_Codon,sig_tcga_BH$Gene_Codon)))
+paste("Only TCGA Significant:",length(setdiff(sig_tcga_BH$Gene_Codon,sig_genie_BH$Gene_Codon)))
+```
+
+# BH - overlap 0
+```{r}
+# Get the Gene_Codon of non-significant codons in Genie set
+nonsig_genie_BH = score_data[which(score_data$Driver_BH == 0),c(1,3)]
+print(nrow(nonsig_genie_BH))
+nonsig_genie_BH
+
+# Get the Gene_Codon of non-significant codons in TCGA set
+nonsig_tcga_BH = test_score_data[which(test_score_data$Driver_BH == 0),c(1,3)]
+print(nrow(nonsig_tcga_BH))
+nonsig_tcga_BH
+
+# Get the intersected part (0,0)
+intersect_0_BH = intersect(nonsig_genie_BH$Gene_Codon,nonsig_tcga_BH$Gene_Codon)
+paste("Both insignificant:",length(intersect_0_BH))
+
+# Get the unintersected part (0,1 / 1,0)
+paste("only Genie non-Significant:",length(setdiff(nonsig_genie_BH$Gene_Codon,nonsig_tcga_BH$Gene_Codon)))
+paste("Only TCGA non-Significant:",length(setdiff(nonsig_tcga_BH$Gene_Codon,nonsig_genie_BH$Gene_Codon)))
+```
+
+# 268 drivers BH
+```{r}
+drivers_BH = sig_genie_BH[which(sig_genie_BH$Gene_Codon %in% intersect_1_BH),]
+drivers_BH = arrange(drivers_BH,desc(drivers_BH$Sample_Freq))
+drivers_BH
+```
+```{r}
+write.csv(drivers_BH,"/Users/jingjing/SEM2/Dissertations/Project 1/Results/BH_drivers.csv", row.names = FALSE)
+```
+
+
+# 5887 non-driver-BY
+```{r}
+non_drivers_BH = nonsig_genie_BH[which(nonsig_genie_BH$Gene_Codon %in% intersect_0_BH),]
+non_drivers_BH = arrange(non_drivers_BH,desc(non_drivers_BH$Sample_Freq))
+non_drivers_BH
+```
+```{r}
+write.csv(non_drivers_BH,"/Users/jingjing/SEM2/Dissertations/Project 1/Results/BH_non_drivers.csv", row.names = FALSE)
+```
+
+# significance and non-significance in Genie BH
+```{r}
+write.csv(sig_genie_BH,"/Users/jingjing/SEM2/Dissertations/Project 1/Results/BH_drivers_genie.csv", row.names = FALSE)
+write.csv(nonsig_genie_BH,"/Users/jingjing/SEM2/Dissertations/Project 1/Results/BH_non_drivers_genie.csv", row.names = FALSE)
+```
+
+
+# significance and non-significance in TCGA BYH
+```{r}
+write.csv(sig_tcga_BH,"/Users/jingjing/SEM2/Dissertations/Project 1/Results/BH_drivers_tcga.csv", row.names = FALSE)
+write.csv(nonsig_tcga_BH,"/Users/jingjing/SEM2/Dissertations/Project 1/Results/BH_non_drivers_tcga.csv", row.names = FALSE)
+```
+
+
+
+
+
+
+
+# BY - overlap 1
+```{r}
+# Get the Gene_Codon of significant codons in Genie set
+sig_genie_BY = score_data[which(score_data$Driver_BY == 1),c(1,3)]
+paste("Genie significant:",nrow(sig_genie_BY))
+sig_genie_BY
+
+# Get the Gene_Codon of significant codons in TCGA set
+sig_tcga_BY = test_score_data[which(test_score_data$Driver_BY == 1),c(1,3)]
+paste("TCGA significant:",nrow(sig_tcga_BY))
+sig_tcga_BY
+
+# Get the intersected part (1,1)
+intersect_1 = intersect(sig_genie_BY$Gene_Codon,sig_tcga_BY$Gene_Codon)
+intersect_1
+paste("Both significant:",length(intersect_1))
+
+# Get the unintersected part (1,0 / 0,1)
+paste("only Genie Significant:",nrow(setdiff(sig_genie_BY$Gene_Codon,sig_tcga_BY$Gene_Codon)))
+paste("Only TCGA Significant:",nrow(setdiff(sig_tcga_BY$Gene_Codon,sig_genie_BY$Gene_Codon)))
+```
+
+
+# BY - overlap 0
+```{r}
+# Get the Gene_Codon of non-significant codons in Genie set
+nonsig_genie_BY = score_data[which(score_data$Driver_BY == 0),c(1,3)]
+print(nrow(nonsig_genie_BY))
+nonsig_genie_BY
+
+# Get the Gene_Codon of non-significant codons in TCGA set
+nonsig_tcga_BY = test_score_data[which(test_score_data$Driver_BY == 0),c(1,3)]
+print(nrow(nonsig_tcga_BY))
+nonsig_tcga_BY
+
+# Get the intersected part (0,0)
+intersect_0 = intersect(nonsig_genie_BY$Gene_Codon,nonsig_tcga_BY$Gene_Codon)
+paste("Both insignificant:",length(intersect_0))
+
+# Get the unintersected part (0,1 / 1,0)
+paste("only Genie non-Significant:",length(setdiff(nonsig_genie_BY$Gene_Codon,nonsig_tcga_BY$Gene_Codon)))
+paste("Only TCGA non-Significant:",length(setdiff(nonsig_tcga_BY$Gene_Codon,nonsig_genie_BY$Gene_Codon)))
+```
+
+# 217 potential driver mutation
+```{r}
+drivers_BY = sig_genie_BY[which(sig_genie_BY$Gene_Codon %in% intersect_1),]
+drivers_BY = arrange(drivers_BY,desc(drivers_BY$Sample_Freq))
+drivers_BY
+```
+
+```{r}
+write.csv(drivers_BY,"/Users/jingjing/SEM2/Dissertations/Project 1/Results/BY_drivers.csv", row.names = FALSE)
+```
+
+# 6249 non-driver-BY
+```{r}
+non_drivers_BY = nonsig_genie_BY[which(nonsig_genie_BY$Gene_Codon %in% intersect_0),]
+non_drivers_BY = arrange(non_drivers_BY,desc(non_drivers_BY$Sample_Freq))
+non_drivers_BY
+```
+```{r}
+write.csv(non_drivers_BY,"/Users/jingjing/SEM2/Dissertations/Project 1/Results/BY_non_drivers.csv", row.names = FALSE)
+```
+
+# significance and non-significance in Genie BY
+```{r}
+write.csv(sig_genie_BY,"/Users/jingjing/SEM2/Dissertations/Project 1/Results/BY_drivers_genie.csv", row.names = FALSE)
+write.csv(nonsig_genie_BY,"/Users/jingjing/SEM2/Dissertations/Project 1/Results/BY_non_drivers_genie.csv", row.names = FALSE)
+```
+
+
+# significance and non-significance in TCGA BY
+```{r}
+write.csv(sig_tcga_BY,"/Users/jingjing/SEM2/Dissertations/Project 1/Results/BY_drivers_tcga.csv", row.names = FALSE)
+write.csv(nonsig_tcga_BY,"/Users/jingjing/SEM2/Dissertations/Project 1/Results/BY_non_drivers_tcga.csv", row.names = FALSE)
+```
+
+
