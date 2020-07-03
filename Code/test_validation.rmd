@@ -1,0 +1,163 @@
+# Load required packages
+```{r}
+# library(reticulate) 
+library(plyr)
+library(tibble)
+library(dplyr)
+library(stats)
+```
+
+# Load TCGA data
+```{r}
+setwd("/Users/jingjing/SEM2/Dissertations/Project 1/Data")
+tcga_data <- read.delim("pre_tcga_mutations_data.txt", header = TRUE)
+print(nrow(tcga_data))
+head(tcga_data)
+```
+
+# Filter out "SNP" and "Missense Mutation"
+```{r}
+test_data = as.tibble(tcga_data) %>% filter(Variant_Type == "SNP" & Variant_Classification == "Missense_Mutation")
+print(nrow(test_data))
+test_data
+```
+
+# Select vital features
+```{r}
+test_data = test_data %>% select(Tumor_Sample_Barcode, Hugo_Symbol, HGVSp_Short, Amino_acids)
+print(length(unique(test_data$Tumor_Sample_Barcode))) # No. of patients/samples/tumors
+print(nrow(test_data)) # No. of mutations
+head(test_data)
+```
+
+# Extract codon_id and combine it with Gene_name
+```{r}
+# Remove the first 2 characters
+b = sapply(test_data$HGVSp_Short,function(x) sub("..","",x))
+# Remove the last character to get codon_id 
+test_data$CodonID = sapply(b,function(x) substr(x,1,nchar(x)-1))
+# Combine gene name and codon id
+test_data = test_data %>% select(Tumor_Sample_Barcode,Hugo_Symbol,CodonID, Amino_acids) %>% mutate(Gene_Codon = paste(Hugo_Symbol,CodonID,sep = "_"))
+print(nrow(test_data)) # No. of mutations
+head(test_data)
+```
+
+# Remove the Gene_Codon that are not in pickle file 
+```{r}
+# No. Gene_Codon that are not in pickle file
+print(length(setdiff(test_data$Gene_Codon,bg_mutability$Gene_Codon)))
+# Gene_Codon that are not in pickle file
+test_difference = setdiff(test_data$Gene_Codon,bg_mutability$Gene_Codon)
+# Drop relevant rows from mutation_data
+index_diff = which(test_data$Gene_Codon %in% test_difference)
+test_data =  test_data[-index_diff,]
+print(length(unique(test_data$Tumor_Sample_Barcode))) # No. of patients
+print(nrow(test_data)) # No. of mutations
+head(test_difference)
+
+# 有用的是9429行数据，即对应的Gene_Codon是存在与pickle file里的
+```
+
+# No. of samples / patients / tumors in TCGA
+```{r}
+n_test = length(unique(test_data$Tumor_Sample_Barcode))
+print(n_test)
+```
+
+# Check distinct
+```{r}
+test_data %>% distinct(Gene_Codon) 
+# 测试集中共存在7166个不同的Gene_Codon（与Genie总数176109差别很大）
+```
+
+# Check distinct
+```{r}
+test_data %>% distinct(Tumor_Sample_Barcode,Gene_Codon) 
+```
+
+# Check the duplicate term in test data
+```{r}
+head(test_data)
+
+corrected_test = test_data %>% distinct(Tumor_Sample_Barcode,Gene_Codon,Amino_acids) 
+
+corrected_test
+```
+
+# No. of samples / patients / tumors in test set
+```{r}
+# 应该算整个数据集的而不是处理后的数据集的样本数
+n.test = length(unique(test_data$Tumor_Sample_Barcode))
+print(n.test)
+print(length(unique(tcga_data$Tumor_Sample_Barcode)))
+```
+
+# Calculate the frequencies in test set
+```{r}
+test_sample = as.data.frame(sort(table(corrected_test$Gene_Codon), decreasing = TRUE))
+colnames(test_sample)[1] = "Gene_Codon"
+colnames(test_sample)[2] = "Sample_Freq"
+print(nrow(test_sample))
+test_sample
+
+# 一共有7166个Gene_Codon(无重复)
+```
+
+# Merge pickle with sample
+```{r}
+test_prob_data = merge(bg_mutability,test_sample,by="Gene_Codon")
+head(test_prob_data)
+```
+
+# Calculate the significant score with binomial testing from stats
+```{r}
+test_score_data.binomtest = rowwise(test_prob_data) %>% 
+  bind_cols(do(.,data.frame(Sig_Score = binom.test(.$Sample_Freq, n_test, .$Mutability, alternative = "greater")$p.value)))
+head(test_score_data.binomtest)
+```
+
+# No. of significant before multiple correction of binomal testing p-value
+```{r}
+# Original significant result of binomial testing p-value
+test_driver_mutation_ori.binomtest = ifelse(test_score_data.binomtest$Sig_Score<=0.01, 1, 0)
+sum(test_driver_mutation_ori.binomtest)
+```
+
+```{r}
+test_score_data = test_score_data.binomtest
+```
+
+# Multiple testing correction by p.adjust - alpha = 0.01
+# BH - Banjamini Hochbergh
+```{r}
+adj_p_value_BH.test = p.adjust(test_score_data$Sig_Score, method = "BH", n = length(test_score_data$Sig_Score))
+# test_score_data["Adj_P_Value_BH"] = adj_p_value_BH.test
+# test_driver_mutation_BH = ifelse(test_score_data$Adj_P_Value_BY<=0.01, 1, 0)
+test_driver_mutation_BH.1 = ifelse(adj_p_value_BH.test<=0.01, 1, 0)
+sum(test_driver_mutation_BH.1) 
+```
+
+# BY - Banjamini Yekutieli
+```{r}
+adj_p_value_BY.test = p.adjust(test_score_data$Sig_Score, method = "BY", n = length(test_score_data$Sig_Score))
+# test_score_data["Adj_P_Value_BY"] = adj_p_value_BY.test
+# test_driver_mutation_BY = ifelse(test_score_data$Adj_P_Value_BY<=0.01, 1, 0)
+test_driver_mutation_BY.1 = ifelse(adj_p_value_BY.test<=0.01, 1, 0)
+sum(test_driver_mutation_BY.1)
+```
+
+# Multiple testing correction by p.adjust - alpha = 0.05
+# BH - Banjamini Hochbergh
+```{r}
+test_driver_mutation_BH.5 = ifelse(adj_p_value_BH.test<=0.05, 1, 0)
+sum(test_driver_mutation_BH.5) 
+```
+
+# BY - Banjamini Yekutieli
+```{r}
+test_driver_mutation_BY.5 = ifelse(adj_p_value_BY.test<=0.05, 1, 0)
+sum(test_driver_mutation_BY.5)
+```
+
+
+
